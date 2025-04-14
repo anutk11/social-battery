@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="he">
+<head>
+  <meta charset="UTF-8">
+  <title>הסוללה החברתית שלי</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      text-align: center;
+      direction: rtl;
+      background-color: #f0f0f0;
+      padding: 50px;
+    }
+    #battery {
+      width: 200px;
+      height: 80px;
+      border: 4px solid #333;
+      margin: 0 auto;
+      position: relative;
+      border-radius: 10px;
+      background-color: white;
+    }
+    #battery::after {
+      content: '';
+      position: absolute;
+      top: 25%;
+      right: -12px;
+      width: 10px;
+      height: 50%;
+      background: #333;
+      border-radius: 2px;
+    }
+    #fill {
+      height: 100%;
+      width: 0%;
+      border-radius: 6px;
+    }
+    #status {
+      margin-top: 20px;
+      font-size: 1.5em;
+    }
+    #share-link {
+      margin-top: 30px;
+    }
+  </style>
+</head>
+<body>
+  <h1>הסוללה החברתית שלי</h1>
+  <div id="battery">
+    <div id="fill"></div>
+  </div>
+  <p id="status">בודק מצב...</p>
+  <input type="range" id="slider" min="0" max="100" value="100">
+  <div id="share-link"></div>
+
+  <script>
+    const fill = document.getElementById("fill");
+    const status = document.getElementById("status");
+    const slider = document.getElementById("slider");
+    const shareDiv = document.getElementById("share-link");
+
+    const messages = [
+      "0% - התרחקו ממני או שתצטערו...",
+      "10% - אני מדבר רק עם כלבים עכשיו",
+      "20% - אולי אגיד שלום, אבל בלי עין בעין",
+      "30% - זורק חיוכים מזויפים מרחוק",
+      "40% - מדבר, אבל רק אם משלמים לי בקפה",
+      "50% - נו טוב, אני כבר פה...",
+      "60% - אפשר לנהל שיחה של עד 3 דקות",
+      "70% - יחסית סבבה! אפשר מינגלינג",
+      "80% - תביאו את השיחות העמוקות!",
+      "90% - רוקד באמצע הרחוב עם זרים",
+      "100% - כוכב מסיבות! תרקדו איתי!"
+    ];
+
+    function updateBattery(percent) {
+      fill.style.width = percent + "%";
+      fill.style.backgroundColor = percent < 30 ? "#e74c3c" : percent < 60 ? "#f1c40f" : "#2ecc71";
+
+      let index = Math.floor(percent / 10);
+      if (index > 10) index = 10;
+      status.innerText = messages[index];
+    }
+
+    slider.addEventListener("input", () => {
+      const value = slider.value;
+      localStorage.setItem("socialBattery", value);
+      updateBattery(value);
+      updateShareLink(value);
+    });
+
+    function updateShareLink(value) {
+      const url = new URL(window.location.href);
+      url.searchParams.set("battery", value);
+      shareDiv.innerHTML = `<p>שתף חברים: <a href="${url.toString()}" target="_blank">${url.toString()}</a></p>`;
+    }
+
+    window.onload = () => {
+      let batteryValue = new URLSearchParams(window.location.search).get("battery") || localStorage.getItem("socialBattery") || 100;
+      slider.value = batteryValue;
+      updateBattery(batteryValue);
+      updateShareLink(batteryValue);
+    }
+  </script>
+</body>
+</html>
