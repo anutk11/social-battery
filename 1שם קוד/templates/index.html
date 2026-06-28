@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>מיני ברידג' / הוויסט</title>
+    <script src="/static/socket.io.min.js"></script>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #27ae60; color: white; margin: 0; padding: 15px; }
+        .container { background: white; color: black; padding: 30px; border-radius: 12px; max-width: 400px; margin: 20px auto; text-align: center; }
+        input, button { padding: 10px; margin: 5px; font-size: 16px; border-radius: 6px; }
+        button { background: #2c3e50; color: white; border: none; cursor: pointer; font-weight: bold; }
+        button:hover { background: #1a252f; }
+        
+        /* אזור המשחק */
+        #game-board { display: none; max-width: 900px; margin: 0 auto; text-align: center; }
+        
+        /* לוח השולחן המרכזי */
+        .table-area { 
+            background: #1e8449; border: 5px solid #145a32; border-radius: 50%; 
+            height: 350px; width: 100%; max-width: 500px; margin: 20px auto;
+            position: relative; box-shadow: inset 0 0 20px rgba(0,0,0,0.5);
+            display: flex; justify-content: center; align-items: center;
+        }
+        
+        /* סטטוס המשחק ותורות */
+        .status-bar { background: #145a32; padding: 10px; border-radius: 8px; margin-bottom: 20px; font-size: 18px; font-weight: bold; }
+        .turn-highlight { color: #f1c40f; text-shadow: 1px 1px 2px black; }
+
+        /* קלפים */
+        .hand { display: flex; justify-content: center; flex-wrap: wrap; gap: 5px; margin-top: 20px; }
+        .card { 
+            width: 60px; height: 90px; background: white; border-radius: 6px; border: 1px solid #ccc;
+            display: flex; flex-direction: column; justify-content: space-between; padding: 5px;
+            font-size: 20px; font-weight: bold; color: black; cursor: pointer; box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+            transition: transform 0.2s;
+        }
+        .card:hover { transform: translateY(-10px); }
+        .card.disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+        
+        .suit-Hearts, .suit-Diamonds { color: #e74c3c; }
+        .suit-Spades, .suit-Clubs { color: #2c3e50; }
+        
+        .card-top { text-align: left; }
+        .card-bottom { text-align: right; transform: rotate(180deg); }
+
+        /* שחקנים בלוח הצדדי */
+        .scoreboard { display: flex; justify-content: space-around; flex-wrap: wrap; background: rgba(0,0,0,0.3); padding: 10px; border-radius: 8px; }
+        .player-stat { background: white; color: black; padding: 10px; border-radius: 6px; min-width: 120px; margin: 5px; font-weight: bold;}
+
+        /* קלפים ששוחקו לשולחן */
+        .played-card-container { margin: 0 10px; text-align: center; font-size: 14px; font-weight: bold; color: white; text-shadow: 1px 1px 2px black;}
+    </style>
+</head>
+<body>
+
+    <div class="container" id="login-screen">
+        <h2>משחק קלפים - התחברות</h2>
+        <input type="text" id="playerName" placeholder="הכנס את שמך...">
+        <button onclick="joinGame()">הצטרף לשולחן</button>
+        <div id="waiting-msg" style="margin-top: 15px; color: #555;">ממתין ל-4 שחקנים... (<span id="player-count">0</span>/4)</div>
+        <button id="start-btn" style="display:none; width: 100%; background: #27ae60; margin-top: 10px;" onclick="startGame()">חלק קלפים (התחל משחק)</button>
+    </div>
+
+    <div id="game-board">
+        <div class="status-bar" id="game-status">מצב משחק: טוען...</div>
+        
+        <div class="scoreboard" id="scoreboard"></div>
+        
+        <div class="table-area" id="table-area"></div>
+        
+        <div id="bidding-area" style="display:none; background: rgba(0,0,0,0.5); padding: 20px; border-radius: 8px; margin: 20px auto; max-width: 300px;">
+            <h3>תורך להכריז!</h3>
+            <p>כמה לקיחות תיקח בסיבוב הזה?</p>
+            <input type="number" id="bid-input" min="0" max="13" value="0" style="width: 60px; text-align: center;">
+            <button onclick="submitBid()" style="background: #e67e22;">אשר הכרזה</button>
+        </div>
+
+        <div class="hand" id="my-hand"></div>
+    </div>
+
+    <script>
+        const socket = io();
+        let myName = '';
+        let myTurn = false;
+        let currentPhase = 'waiting';
+        const suitSymbols = { 'Spades': '♠', 'Hearts': '♥', 'Diamonds': '♦', 'Clubs': '♣' };
+
+        function joinGame() {
+            myName = document.getElementById('playerName').value.trim();
+            if (!myName) { alert('אנא הכנס שם'); return; }
+            socket.emit('join_game', { name: myName });
+            document.getElementById('playerName').disabled = true;
+        }
+
+        function startGame() {
+            socket.emit('start_game');
+        }
+
+        function submitBid() {
+            const bid = document.getElementById('bid-input').value;
+            socket.emit('place_bid', { player: myName, bid: bid });
+            document.getElementById('bidding-area').style.display = 'none';
+        }
+
+        function playCard(suit, rank) {
+            if (!myTurn || currentPhase !== 'playing') return;
+            socket.emit('play_card', { player: myName, card: {suit: suit, rank: rank} });
+        }
+
+        socket.on('error_message', function(data) {
+            alert(data.msg);
+        });
+
+        // קבלת היד (אישי)
+        socket.on('private_hand', function(data) {
+            const handDiv = document.getElementById('my-hand');
+            handDiv.innerHTML = '';
+            
+            data.hand.forEach(card => {
+                const cardEl = document.createElement('div');
+                cardEl.className = `card suit-${card.suit}`;
+                
+                // הפיכת הקלפים ללא לחיצים אם זה לא תור השחקן או אם אנחנו בשלב המתנה/הכרזה
+                if(!myTurn || currentPhase !== 'playing') {
+                    cardEl.classList.add('disabled');
+                } else {
+                    cardEl.onclick = () => playCard(card.suit, card.rank);
+                }
+                
+                cardEl.innerHTML = `
+                    <div class="card-top">${card.rank} ${suitSymbols[card.suit]}</div>
+                    <div class="card-bottom">${card.rank} ${suitSymbols[card.suit]}</div>
+                `;
+                handDiv.appendChild(cardEl);
+            });
+        });
+
+        // קבלת עדכון על המצב הכללי של המשחק משרת
+        socket.on('game_update', function(state) {
+            currentPhase = state.phase;
+            
+            if (state.players.includes(myName)) {
+                document.getElementById('login-screen').style.display = 'none';
+                document.getElementById('game-board').style.display = 'block';
+            } else {
+                document.getElementById('player-count').innerText = state.players.length;
+                if (state.players.length === 4) {
+                    document.getElementById('start-btn').style.display = 'block';
+                }
+            }
+
+            myTurn = (state.current_turn_player === myName);
+            
+            // עדכון שורת הסטטוס
+            const statusDiv = document.getElementById('game-status');
+            if (state.phase === 'bidding') {
+                statusDiv.innerHTML = `שלב הכרזות | תור: <span class="turn-highlight">${state.current_turn_player}</span>`;
+                if (myTurn) { document.getElementById('bidding-area').style.display = 'block'; }
+            } else if (state.phase === 'playing') {
+                statusDiv.innerHTML = `השליט הוא עלה (♠) | תור: <span class="turn-highlight">${state.current_turn_player}</span>`;
+            } else if (state.phase === 'finished') {
+                statusDiv.innerHTML = `המשחק הסתיים! בדוק את הניקוד.`;
+            }
+
+            // עדכון לוח ניקוד ושחקנים
+            const sbDiv = document.getElementById('scoreboard');
+            sbDiv.innerHTML = '';
+            state.players.forEach(p => {
+                const bid = state.bids[p] !== undefined ? state.bids[p] : '-';
+                const won = state.tricks_won[p] !== undefined ? state.tricks_won[p] : '0';
+                const score = state.scores[p] !== undefined ? ` | נק': ${state.scores[p]}` : '';
+                
+                const pDiv = document.createElement('div');
+                pDiv.className = 'player-stat';
+                if(p === state.current_turn_player) pDiv.style.border = "3px solid #f1c40f";
+                pDiv.innerHTML = `${p}<br>הימור: ${bid} | לקח: ${won}${score}`;
+                sbDiv.appendChild(pDiv);
+            });
+
+            // עדכון השולחן המרכזי
+            const tableDiv = document.getElementById('table-area');
+            tableDiv.innerHTML = '';
+            state.current_trick.forEach(play => {
+                const cContainer = document.createElement('div');
+                cContainer.className = 'played-card-container';
+                cContainer.innerHTML = `<div>${play.player}</div>`;
+                
+                const cardEl = document.createElement('div');
+                cardEl.className = `card suit-${play.card.suit}`;
+                cardEl.style.cursor = "default";
+                cardEl.style.transform = `rotate(${Math.random() * 20 - 10}deg)`; // זריקה טבעית
+                
+                cardEl.innerHTML = `
+                    <div class="card-top">${play.card.rank} ${suitSymbols[play.card.suit]}</div>
+                    <div class="card-bottom">${play.card.rank} ${suitSymbols[play.card.suit]}</div>
+                `;
+                
+                cContainer.appendChild(cardEl);
+                tableDiv.appendChild(cContainer);
+            });
+
+            // רענון עיצוב הקלפים ביד (זמינות לחיצה) בהתאם לתור העדכני
+            const myHandCards = document.querySelectorAll('#my-hand .card');
+            myHandCards.forEach(card => {
+                if (myTurn && currentPhase === 'playing') {
+                    card.classList.remove('disabled');
+                } else {
+                    card.classList.add('disabled');
+                }
+            });
+        });
+    </script>
+</body>
+</html>
